@@ -1,0 +1,229 @@
+import streamlit as st
+import pandas as pd
+from datetime import datetime, timedelta
+import folium
+from folium.plugins import HeatMap
+from streamlit_folium import folium_static
+from twilio.rest import Client
+import smtplib
+import os
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+
+# Hardcoded credentials (Replace with a proper authentication system for production)
+AUTH_CREDENTIALS = {"admin": "pass"}
+
+def authenticate():
+    if "authenticated" not in st.session_state:
+        st.session_state.authenticated = False
+    
+    st.sidebar.title("Authority Login")
+    username = st.sidebar.text_input("Username")
+    password = st.sidebar.text_input("Password", type="password")
+    
+    if st.sidebar.button("Login"):
+        if username in AUTH_CREDENTIALS and AUTH_CREDENTIALS[username] == password:
+            st.session_state.authenticated = True
+            st.sidebar.success("Login successful!")
+        else:
+            st.sidebar.error("Invalid credentials. Try again.")
+    
+    return st.session_state.authenticated
+
+def load_data():
+    try:
+        file_path = r"D:\WhatsApp\DisasterAlert (8)\DisasterAlert (8)\data\real_time_india_earthquakes_with_states.csv"
+        df = pd.read_csv(file_path)
+        
+        st.success("File Loaded Successfully!")
+        
+        required_columns = {'datetime', 'location', 'state', 'latitude', 'longitude', 'magnitude'}
+        if not required_columns.issubset(df.columns):
+            st.error(f"Missing required columns! Ensure your CSV has: {required_columns}")
+            return pd.DataFrame(), None, None
+        
+        df['datetime'] = pd.to_datetime(df['datetime'])
+        end_date = datetime.today()
+        start_date = end_date - timedelta(days=10)
+        df = df[(df['datetime'] >= start_date) & (df['datetime'] <= end_date)]
+        
+        return df, start_date, end_date
+    except Exception as e:
+        st.error(f"Error loading file: {e}")
+        return pd.DataFrame(), None, None
+
+def send_sms_alert(phone_number, location):
+    try:
+        client = Client("AC5ca73c9f4bdd55877f4c097867dc7335", "c566b70c2e1c9b4fbaa99cff674d7b81")
+        message = client.messages.create(
+            #body=f"\U0001F6A8 Earthquake Alert: {location} is affected. Take necessary precautions!",
+            body=(
+                    f"🚨 Earthquake Alert: {location} is affected. Take necessary precautions!\n\n"
+                    "🔹 Drop, Cover, and Hold On.\n"
+                    "🔹 Move to an open area if outside.\n"
+                    "🔹 Stay away from windows and heavy objects.\n"
+                    "🔹 Keep emergency contacts and supplies ready.\n"
+                    "🔹 Follow official updates and stay safe!"
+            ),
+            from_="+18043921525",
+            to=phone_number
+        )
+        return message.sid
+    except Exception as e:
+        return f"Error: {e}"
+
+def display_map(df):
+    st.subheader("\U0001F5FA Earthquake Affected Areas (Heatmap)")
+    m = folium.Map(location=[20.5937, 78.9629], zoom_start=5, tiles="OpenStreetMap")
+    heat_data = [[row['latitude'], row['longitude'], row['magnitude']] for _, row in df.iterrows()]
+    HeatMap(heat_data, min_opacity=0.3, radius=20, blur=15, max_zoom=5).add_to(m)
+    for _, row in df.iterrows():
+        folium.CircleMarker(
+            location=[row['latitude'], row['longitude']],
+            radius=row['magnitude'] * 2,
+            color="red" if row['magnitude'] >= 5 else "orange",
+            fill=True,
+            fill_color="darkred" if row['magnitude'] >= 7 else "red",
+            fill_opacity=0.7,
+            popup=f"\U0001F4CD {row['location']}<br>\U0001F4C6 {row['datetime'].strftime('%Y-%m-%d')}<br>\U0001F30D Magnitude: {row['magnitude']}"
+        ).add_to(m)
+    folium_static(m)
+
+# Load User Emails for the Selected Region
+def load_user_emails(selected_region):
+    try:
+        email_file = r"D:\WhatsApp\DisasterAlert (8)\DisasterAlert (8)\data\users.xlsx"
+        emails_df = pd.read_excel(email_file, 
+engine='openpyxl')  # Ensure 'openpyxl' is installed
+
+        # Check if required columns exist
+        if "email" not in emails_df.columns or "Location" not in emails_df.columns:
+            st.error("❌ Excel file must contain 'email' and 'Location' columns.")
+            return []
+
+        # Filter emails based on the selected region
+        filtered_emails = emails_df[emails_df["Location"].str.lower() == selected_region.lower()]["email"].tolist()
+        
+        return filtered_emails
+    except Exception as e:
+        st.error(f"❌ Error loading emails: {e}")
+        return []
+
+# Send Email Function (Fixed: Sends each email separately)
+def send_email(subject, message, recipients):
+    sender_email = "srushti.22211386@viit.ac.in"  # Replace with your Gmail
+    app_password = "eida xufl uhme yytb"  # Replace with your generated App Password
+
+    try:
+        server = smtplib.SMTP("smtp.gmail.com", 587)
+        server.starttls()
+        server.login(sender_email, app_password)
+
+        for email in recipients:
+            msg = MIMEMultipart()
+            msg["From"] = sender_email
+            msg["To"] = email  # Send to one recipient at a time
+            msg["Subject"] = subject
+            msg.attach(MIMEText(message, "plain"))
+
+            server.sendmail(sender_email, email, 
+msg.as_string())
+
+        server.quit()
+        return True
+    except Exception as e:
+        st.error(f"❌ Email sending failed: {e}")
+        return False
+
+
+def main():
+    st.title("🌍EarthQuake Disaster Alert System")
+    st.subheader("📊Real-time Earthquake Data")
+    
+    if not authenticate():
+        st.warning("⚠ Please log in to access the system.")
+        return
+    
+    df, start_date, end_date = load_data()
+    
+    if df is not None and not df.empty:
+        st.write("### Date Range for Analysis")
+        st.write(f"**Start Date:** {start_date.strftime('%Y-%m-%d')}")
+        st.write(f"**End Date:** {end_date.strftime('%Y-%m-%d')}")
+        
+        st.subheader("Earthquake Data Table")
+        st.dataframe(df)
+        display_map(df)
+        
+        st.subheader("Send SMS Alert")
+        selected_state = st.selectbox("Select an affected area to send an alert:", df['state'].unique())
+        
+        if st.button("Send SMS Alert"):
+            if selected_state == 'Delhi':
+                send_sms_alert('+917796571177', selected_state)
+                send_sms_alert('+918485078849', selected_state)
+            elif selected_state == 'Punjab':
+                send_sms_alert('+917058622905', selected_state)
+            elif selected_state == 'Assam':
+                send_sms_alert('+919579395752', selected_state)
+            elif selected_state == 'Sikkim':
+                send_sms_alert('+917038754097', selected_state)
+            elif selected_state == 'Rajasthan':
+                send_sms_alert('+918767549928', selected_state)
+            elif selected_state == 'Arunachal Pradesh':
+                send_sms_alert('+919420637258', selected_state)
+            elif selected_state == 'Jammu and Kashmir':
+                send_sms_alert('+918483972017', selected_state)
+            elif selected_state == 'Himachal Pradesh':
+                send_sms_alert('+919807859999', selected_state)
+            elif selected_state == 'Ladakh':
+                send_sms_alert('+917249678352', selected_state)
+            elif selected_state == 'Assam':
+                send_sms_alert('+918830094399', selected_state)
+            elif selected_state == 'Manipur':
+                send_sms_alert('+918855880088', selected_state)
+            elif selected_state == 'Odisha':
+                send_sms_alert('+919421561115', selected_state)
+            elif selected_state == 'Tripura':
+                send_sms_alert('+917058380264', selected_state)
+            elif selected_state == 'Maharashtra':
+                send_sms_alert('+917588620568', selected_state)
+            else:
+                st.warning('No users found in the selected state.')
+
+                    # Dropdown for affected area selection
+        st.subheader("📨 Send Email Alert")
+        affected_area = st.selectbox("📍 Select an affected area to send an alert:", df['state'].unique())
+
+        # Load recipient emails for selected region
+        recipient_emails = load_user_emails(affected_area)
+
+        if st.button("🚀 Send Email Alert"):
+            if recipient_emails:
+                email_subject = f"🚨 Earthquake Alert: {affected_area} 🚨"
+                email_message = f"""
+⚠ URGENT: Earthquake Detected in {affected_area}! ⚠
+
+🔹 Location: {affected_area}
+🔹 Date: {datetime.today().strftime('%Y-%m-%d')}
+🔹 Recommended Preventive Measures:
+   - Stay indoors and take cover under sturdy furniture.
+   - Avoid windows, mirrors, and heavy objects that could fall.
+   - If outside, move to an open area away from buildings and power lines.
+   - Prepare an emergency kit with essentials like water, food, and medications.
+   - Stay updated with local authorities for further instructions.
+
+📢 Stay safe and take necessary precautions.
+
+- DisasterAlert System
+"""
+
+                if send_email(email_subject, email_message, recipient_emails):
+                    st.success(f"📩 Alert email sent successfully to {len(recipient_emails)} users in {affected_area}!")
+                else:
+                    st.error("❌ Failed to send emails.")
+            else:
+                st.warning(f"⚠ No users found in {affected_area}. No emails sent.")
+
+if __name__ == "__main__":
+    main()
