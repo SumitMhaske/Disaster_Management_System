@@ -1,0 +1,6 @@
+datetime,latitude,longitude,magnitude,location,risk_level,state
+2025-05-14 10:02:12.539,31.4767,69.1273,4.4,"34 km WNW of Zhob, Pakistan",,Unknown
+2025-05-13 16:48:40.653,6.9042,92.3392,4.1,"Nicobar Islands, India region",,Unknown
+2025-05-11 21:11:22.072,29.0505,87.6281,5.6,"124 km W of Rikaze, China",yellow,Tibet
+2025-05-09 08:37:30.404,20.8303,96.0246,4.4,"18 km ESE of Meiktila, Burma (Myanmar)",,Mandalay
+2025-05-09 01:41:59.778,34.5989,93.1474,4.1,"Southern Qinghai, China",,Qinghai
